@@ -34,13 +34,6 @@ func NewClient(apiToken string, accountID int64) (*Client, error) {
 	return &Client{sid: steamid.New(accountID)}, nil
 }
 
-type GameStat struct {
-	ID                      string
-	Name                    string
-	PlayTimeTwoWeeksMinutes int
-	PlayTimeForeverMinutes  int
-}
-
 func (c *Client) GetRecentlyPlayedGameStats(ctx context.Context) ([]GameStat, error) {
 	games, err := steamweb.GetRecentlyPlayedGames(ctx, c.sid)
 	if err != nil {
