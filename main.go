@@ -13,7 +13,7 @@ import (
 
 var (
 	steamKey = flag.String("steamKey", "TOP_SECRET", "the Steam API key from https://steamcommunity.com/dev/apikey")
-	steamID  = flag.Int64("steamID", 11223344556677880, "the Steam Account ID from your Steam profile page ")
+	steamID  = flag.Int64("steamID", 11223344556677880, "the Steam Account ID from your Steam profile page")
 )
 
 func main() {
