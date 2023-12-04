@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
-	"fmt"
+	"io"
 	"log"
+	"os"
 	"steamprofilewatcher/steam"
+	"time"
 )
 
 var (
@@ -25,12 +28,50 @@ func handle() error {
 	if err != nil {
 		return err
 	}
-	stats, err := c.GetRecentlyPlayedGameStats(context.TODO())
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFunc()
+	stats, err := c.GetRecentlyPlayedGameStats(ctx)
 	if err != nil {
 		return err
 	}
+	return output(stats)
+}
+
+func output(stats []steam.GameStat) (e error) {
+	filename := "steam_profile_watch.csv"
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_APPEND, 0)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		file, err = os.Create(filename)
+		if err != nil {
+			return err
+		}
+		if err := prepareCSVHeader(file); err != nil {
+			return err
+		}
+	}
+	defer func(file *os.File) {
+		e = errors.Join(e, file.Close())
+	}(file)
+
+	now := time.Now()
 	for _, stat := range stats {
-		fmt.Printf("%+v\n", stat)
+		if _, err := file.WriteString(stat.CSVLine(now) + "\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func prepareCSVHeader(w io.Writer) error {
+	// Add BOM for Excel kanji print.
+	if _, err := w.Write([]byte("\uFEFF")); err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte(steam.GameStat{}.CSVHeader() + "\n")); err != nil {
+		return err
 	}
 	return nil
 }
