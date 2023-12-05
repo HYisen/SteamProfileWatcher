@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"steamprofilewatcher/steam"
 	"time"
 )
@@ -37,8 +39,22 @@ func handle() error {
 	return output(stats)
 }
 
+func exeDirOrEmpty() string {
+	executable, err := os.Executable()
+	fmt.Println(executable)
+	if err != nil {
+		return ""
+	}
+	absolute, err := filepath.EvalSymlinks(executable)
+	fmt.Println(absolute)
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(absolute)
+}
+
 func output(stats []steam.GameStat) (e error) {
-	filename := "steam_profile_watch.csv"
+	filename := filepath.Join(exeDirOrEmpty(), "steam_profile_watch.csv")
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_APPEND, 0)
 	if err != nil {
 		if !os.IsNotExist(err) {
