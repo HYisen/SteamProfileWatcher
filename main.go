@@ -10,7 +10,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"steamprofilewatcher/steam"
+	"strings"
 	"time"
 )
 
@@ -48,7 +50,7 @@ func parse() error {
 			continue
 		}
 		line := scanner.Text()
-		timestamp, stat, err := steam.ParseCSVLine(line)
+		date, stat, err := steam.ParseCSVLine(line)
 		if err != nil {
 			return fmt.Errorf("parse stat line: %w", err)
 		}
