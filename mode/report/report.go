@@ -99,7 +99,7 @@ func Build(data Data) []string {
 	var ret []string
 	ret = append(ret, csvHeader(idToName))
 	var keys []string
-	for date, _ := range dateToIDToPlayTimeMinutesDelta {
+	for date := range dateToIDToPlayTimeMinutesDelta {
 		keys = append(keys, date)
 	}
 	slices.SortFunc(keys, strings.Compare)
