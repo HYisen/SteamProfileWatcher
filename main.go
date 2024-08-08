@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"steamprofilewatcher/steam"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -36,37 +37,133 @@ func main() {
 	}
 }
 
+type Point struct {
+	Date            string
+	PlayTimeMinutes int
+}
+
 func parse() error {
 	fp, err := os.Open(statisticFilename())
 	if err != nil {
 		return fmt.Errorf("open stat file: %w", err)
 	}
 	scanner := bufio.NewScanner(fp)
-	idToName := make(map[string]string)
+	idToName, idToPoints, err := csvScan(scanner)
+	if err := outputReport(buildReport(idToName, idToPoints)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func csvScan(lineScanner *bufio.Scanner) (idToName map[string]string, idToPoints map[string][]Point, err error) {
+	idToName = make(map[string]string)
+	idToPoints = make(map[string][]Point)
 	var doneHeader bool
-	for scanner.Scan() {
+	for lineScanner.Scan() {
 		if !doneHeader {
 			doneHeader = true
 			continue
 		}
-		line := scanner.Text()
+		line := lineScanner.Text()
 		date, stat, err := steam.ParseCSVLine(line)
 		if err != nil {
-			return fmt.Errorf("parse stat line: %w", err)
+			return nil, nil, fmt.Errorf("parse stat line: %w", err)
 		}
 
 		if name, ok := idToName[stat.ID]; ok {
 			if name != stat.Name {
-				log.Printf("shifted name on %v from %v to %d", stat.ID, name, stat.Name)
+				log.Printf("shifted name on %v from %v to %v", stat.ID, name, stat.Name)
 			}
 		}
-		fmt.Println(timestamp)
-		fmt.Println(stat)
+		idToName[stat.ID] = stat.Name
+		idToPoints[stat.ID] = append(idToPoints[stat.ID], Point{
+			Date:            date,
+			PlayTimeMinutes: stat.PlayTimeForeverMinutes,
+		})
 	}
-	if scanner.Err() != nil {
-		return fmt.Errorf("read stat file: %w", scanner.Err())
+	if lineScanner.Err() != nil {
+		return nil, nil, fmt.Errorf("read stat file: %w", lineScanner.Err())
+	}
+	return idToName, idToPoints, nil
+}
+
+// mallocByDate fills each date in idToPoints in returned map.
+// only Date info are used in input idToPoints.
+func mallocByDate(idToPoints map[string][]Point) (dateToIDToPlayTimeMinutesDelta map[string]map[string]int) {
+	seen := make(map[string]bool)
+	for _, points := range idToPoints {
+		for _, point := range points {
+			seen[point.Date] = true
+		}
+	}
+
+	dateToIDToPlayTimeMinutesDelta = make(map[string]map[string]int)
+	for date := range seen {
+		dateToIDToPlayTimeMinutesDelta[date] = make(map[string]int)
+	}
+	return dateToIDToPlayTimeMinutesDelta
+}
+
+func buildReport(idToName map[string]string, idToPoints map[string][]Point) []string {
+	// Comment: now that I keep playing through days and skip period by hibernation,
+	// the heartbeat on each day can be multi day sum.
+
+	dateToIDToPlayTimeMinutesDelta := mallocByDate(idToPoints)
+	for id, points := range idToPoints {
+		slices.SortFunc(points, func(lhs, rhs Point) int {
+			return strings.Compare(lhs.Date, rhs.Date) // As time.DateOnly format fit it.
+		})
+		dateToIDToPlayTimeMinutesDelta[points[0].Date][id] = 0
+		for i := 1; i < len(points); i++ {
+			delta := points[i].PlayTimeMinutes - points[i-1].PlayTimeMinutes
+			dateToIDToPlayTimeMinutesDelta[points[i].Date][id] += delta
+		}
+	}
+
+	var ret []string
+	ret = append(ret, csvHeader(idToName))
+	var keys []string
+	for date, _ := range dateToIDToPlayTimeMinutesDelta {
+		keys = append(keys, date)
+	}
+	slices.SortFunc(keys, strings.Compare)
+	for _, date := range keys {
+		var fields []string
+		fields = append(fields, date)
+		for id := range idToName {
+			fields = append(fields, strconv.Itoa(dateToIDToPlayTimeMinutesDelta[date][id]))
+		}
+		ret = append(ret, strings.Join(fields, ","))
+	}
+	return ret
+}
+
+func outputReport(lines []string) error {
+	filename := filepath.Join(exeDirOrEmpty(), "report.csv")
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("create report file: %w", err)
+	}
+
+	if err := writeBOMPrefix(file); err != nil {
+		return err
+	}
+	for _, line := range lines {
+		_, err := file.WriteString(line + "\n")
+		if err != nil {
+			return fmt.Errorf("write line to report file: %w", err)
+		}
 	}
 	return nil
+}
+
+func csvHeader(idToName map[string]string) string {
+	var fields []string
+	fields = append(fields, "date")
+	for id, name := range idToName {
+		fields = append(fields, fmt.Sprintf("\"[%v]%v\"", id, name)) // enclose to allow comma in name
+	}
+	return strings.Join(fields, ",")
 }
 
 func generate() error {
@@ -129,9 +226,14 @@ func output(stats []steam.GameStat) (e error) {
 	return nil
 }
 
-func prepareCSVHeader(w io.Writer) error {
+func writeBOMPrefix(w io.Writer) error {
 	// Add BOM for Excel kanji print.
-	if _, err := w.Write([]byte("\uFEFF")); err != nil {
+	_, err := w.Write([]byte("\uFEFF"))
+	return err
+}
+
+func prepareCSVHeader(w io.Writer) error {
+	if err := writeBOMPrefix(w); err != nil {
 		return err
 	}
 	if _, err := w.Write([]byte(steam.GameStat{}.CSVHeader() + "\n")); err != nil {
