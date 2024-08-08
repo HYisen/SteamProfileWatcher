@@ -18,7 +18,7 @@ var (
 	steamID  = flag.Int64("steamID", 11223344556677880, "the Steam Account ID from your Steam profile page")
 )
 
-var parseMode = flag.Bool("parseMode", true, "whether to parse rather than generate log csv")
+var parseMode = flag.Bool("parseMode", false, "whether to parse rather than generate log csv")
 
 func main() {
 	flag.Parse()
