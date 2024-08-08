@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -18,14 +19,55 @@ var (
 	steamID  = flag.Int64("steamID", 11223344556677880, "the Steam Account ID from your Steam profile page")
 )
 
+var parseMode = flag.Bool("parseMode", true, "whether to parse rather than generate log csv")
+
 func main() {
 	flag.Parse()
-	if err := handle(); err != nil {
-		log.Fatal(err)
+	if *parseMode {
+		if err := parse(); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		if err := generate(); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
-func handle() error {
+func parse() error {
+	fp, err := os.Open(statisticFilename())
+	if err != nil {
+		return fmt.Errorf("open stat file: %w", err)
+	}
+	scanner := bufio.NewScanner(fp)
+	idToName := make(map[string]string)
+	var doneHeader bool
+	for scanner.Scan() {
+		if !doneHeader {
+			doneHeader = true
+			continue
+		}
+		line := scanner.Text()
+		timestamp, stat, err := steam.ParseCSVLine(line)
+		if err != nil {
+			return fmt.Errorf("parse stat line: %w", err)
+		}
+
+		if name, ok := idToName[stat.ID]; ok {
+			if name != stat.Name {
+				log.Printf("shifted name on %v from %v to %d", stat.ID, name, stat.Name)
+			}
+		}
+		fmt.Println(timestamp)
+		fmt.Println(stat)
+	}
+	if scanner.Err() != nil {
+		return fmt.Errorf("read stat file: %w", scanner.Err())
+	}
+	return nil
+}
+
+func generate() error {
 	c, err := steam.NewClient(*steamKey, *steamID)
 	if err != nil {
 		return err
@@ -53,8 +95,12 @@ func exeDirOrEmpty() string {
 	return filepath.Dir(absolute)
 }
 
+func statisticFilename() string {
+	return filepath.Join(exeDirOrEmpty(), "steam_profile_watch.csv")
+}
+
 func output(stats []steam.GameStat) (e error) {
-	filename := filepath.Join(exeDirOrEmpty(), "steam_profile_watch.csv")
+	filename := statisticFilename()
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_APPEND, 0)
 	if err != nil {
 		if !os.IsNotExist(err) {
